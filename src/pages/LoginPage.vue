@@ -22,8 +22,10 @@ async function handleLogin() {
   error.value = "";
 
   try {
-    await authStore.login(rut.value, password.value);
-    router.push("/usuarios");
+    const data = await authStore.login(rut.value, password.value);
+    // Redirigir según el rol del usuario
+    const defaultRoute = data.role === "SECRETARY" ? "/visitas" : "/usuarios";
+    router.push(defaultRoute);
   } catch (err) {
     error.value = err.response?.data?.message || "Credenciales inválidas";
   } finally {
