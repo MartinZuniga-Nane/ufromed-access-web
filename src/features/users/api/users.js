@@ -14,13 +14,17 @@ export const UserRoles = {
  * @param {number} params.page - Número de página (1-based)
  * @param {number} params.size - Tamaño de página (1-200, default: 10)
  * @param {string} [params.rutPrefix] - Prefijo de RUT para búsqueda (opcional)
+ * @param {string} [params.namePrefix] - Prefijo de nombre para búsqueda (opcional)
  * @param {string} [params.role] - Filtro por rol (opcional)
  * @returns {Promise<Object>} - Page<UserResponse> de Spring
  */
-export async function getUsers({ page = 1, size = 10, rutPrefix = "", role = null } = {}) {
+export async function getUsers({ page = 1, size = 10, rutPrefix = "", namePrefix = "", role = null } = {}) {
   const params = { page, size };
   if (rutPrefix) {
     params.rutPrefix = rutPrefix;
+  }
+  if (namePrefix) {
+    params.namePrefix = namePrefix;
   }
   if (role) {
     params.role = role;

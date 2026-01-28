@@ -12,6 +12,7 @@ const totalElements = ref(0);
 
 // Filtros
 const searchRun = ref("");
+const searchName = ref("");
 const statusFilter = ref("");
 
 // Datos
@@ -63,15 +64,42 @@ async function loadVisits() {
     
     // Sanitizar el input de búsqueda removiendo puntos y guiones
     const runPrefix = cleanForPrefix(searchRun.value);
+    const nameTrimmed = searchName.value.trim();
+    
+    // Preparar parámetros de búsqueda por nombre
+    let namePrefix = "";
+    let firstNamePrefix = "";
+    let lastNameFilter = ""; // Para filtrar en frontend
+    
+    if (nameTrimmed) {
+      const parts = nameTrimmed.split(/\s+/);
+      if (parts.length === 1) {
+        // Solo una palabra: buscar en nombre O apellido
+        namePrefix = parts[0];
+      } else {
+        // Múltiples palabras: primera es nombre, resto es apellido
+        firstNamePrefix = parts[0];
+        lastNameFilter = parts.slice(1).join(" ").toLowerCase();
+      }
+    }
     
     const response = await getVisits({
       page: page.value,
       size: size.value,
       runPrefix: runPrefix,
+      namePrefix: namePrefix,
+      firstNamePrefix: firstNamePrefix,
       status: backendStatus,
     });
     
     let content = response.content || [];
+    
+    // Filtrar por apellido en frontend si se buscó nombre completo
+    if (lastNameFilter) {
+      content = content.filter(visit => 
+        visit.lastName.toLowerCase().startsWith(lastNameFilter)
+      );
+    }
     
     // Filtrar en frontend si se seleccionó PENDING
     if (statusFilter.value === VisitDisplayStatus.PENDING) {
@@ -114,6 +142,11 @@ const debouncedSearch = debounce(() => {
 
 // Watch para búsqueda en vivo por RUN
 watch(searchRun, () => {
+  debouncedSearch();
+});
+
+// Watch para búsqueda en vivo por nombre
+watch(searchName, () => {
   debouncedSearch();
 });
 
@@ -193,6 +226,7 @@ function handleFilterChange() {
 
 function clearFilters() {
   searchRun.value = "";
+  searchName.value = "";
   statusFilter.value = "";
   page.value = 1;
   loadVisits();
@@ -406,6 +440,18 @@ function handleClickOutside(event) {
                 class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro pr-8"
               />
               <svg v-if="isLoading && searchRun" class="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+            </div>
+            <div class="relative">
+              <input
+                v-model="searchName"
+                type="text"
+                placeholder="Buscar por nombre..."
+                class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro pr-8"
+              />
+              <svg v-if="isLoading && searchName" class="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
               </svg>

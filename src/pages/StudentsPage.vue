@@ -1,6 +1,14 @@
 <script setup>
-import { ref, onMounted, watch, onUnmounted } from "vue";
-import { getStudents, createStudent, updateStudent, StudentStatus } from "@/features/students";
+import { ref, computed, onMounted, watch, onUnmounted } from "vue";
+import { 
+  getStudents, 
+  createStudent, 
+  updateStudent, 
+  authorizeStudent,
+  unauthorizeStudent,
+  bulkUpdateStatus,
+  StudentStatus 
+} from "@/features/students";
 import { cleanForPrefix, debounce } from "@/shared/utils";
 import Pagination from "@/components/Pagination.vue";
 
@@ -12,6 +20,7 @@ const totalElements = ref(0);
 
 // Filtros
 const searchRun = ref("");
+const searchName = ref("");
 const filters = ref({
   status: "",
 });
@@ -20,6 +29,9 @@ const filters = ref({
 const students = ref([]);
 const isLoading = ref(false);
 const error = ref("");
+
+// Selección múltiple
+const selectedIds = ref(new Set());
 
 // Menu de acciones
 const activeMenuId = ref(null);
@@ -46,25 +58,99 @@ const editForm = ref({
 });
 const editError = ref("");
 
+// Modal de confirmación bulk
+const showBulkConfirmModal = ref(false);
+const showBulkAuthorizeModal = ref(false);
+const isBulkUpdating = ref(false);
+
+// Modal de confirmación individual
+const showConfirmModal = ref(false);
+const confirmAction = ref(null); // 'authorize' | 'unauthorize'
+const confirmStudent = ref(null);
+const isConfirming = ref(false);
+
+// Toast notification
+const toast = ref({ show: false, message: "", type: "success" });
+
+// Computed: estudiantes seleccionados (objetos completos)
+const selectedStudents = computed(() => {
+  return students.value.filter(s => selectedIds.value.has(s.id));
+});
+
+// Computed: seleccionados separados por estado
+const selectedAuthorized = computed(() => {
+  return selectedStudents.value.filter(s => s.status === StudentStatus.AUTHORIZED);
+});
+
+const selectedUnauthorized = computed(() => {
+  return selectedStudents.value.filter(s => s.status === StudentStatus.NOT_AUTHORIZED);
+});
+
+// Computed: si todos los de la página están seleccionados
+const allSelected = computed(() => {
+  if (students.value.length === 0) return false;
+  return students.value.every(s => selectedIds.value.has(s.id));
+});
+
+// Computed: si hay alguno seleccionado (para el checkbox indeterminado)
+const someSelected = computed(() => {
+  return selectedIds.value.size > 0 && !allSelected.value;
+});
+
+function showToast(message, type = "success") {
+  toast.value = { show: true, message, type };
+  setTimeout(() => {
+    toast.value.show = false;
+  }, 3000);
+}
+
 async function loadStudents() {
   isLoading.value = true;
   error.value = "";
   
   try {
-    // Sanitizar el input de búsqueda removiendo puntos y guiones
     const runPrefix = cleanForPrefix(searchRun.value);
+    const nameTrimmed = searchName.value.trim();
+    
+    // Preparar parámetros de búsqueda por nombre
+    let namePrefix = "";
+    let firstNamePrefix = "";
+    let lastNameFilter = ""; // Para filtrar en frontend
+    
+    if (nameTrimmed) {
+      const parts = nameTrimmed.split(/\s+/);
+      if (parts.length === 1) {
+        // Solo una palabra: buscar en nombre O apellido
+        namePrefix = parts[0];
+      } else {
+        // Múltiples palabras: primera es nombre, resto es apellido
+        firstNamePrefix = parts[0];
+        lastNameFilter = parts.slice(1).join(" ").toLowerCase();
+      }
+    }
     
     const response = await getStudents({
       page: page.value,
       size: size.value,
       runPrefix: runPrefix,
+      namePrefix: namePrefix,
+      firstNamePrefix: firstNamePrefix,
       status: filters.value.status,
     });
-    students.value = response.content || [];
+    
+    let content = response.content || [];
+    
+    // Filtrar por apellido en frontend si se buscó nombre completo
+    if (lastNameFilter) {
+      content = content.filter(student => 
+        student.lastName.toLowerCase().startsWith(lastNameFilter)
+      );
+    }
+    
+    students.value = content;
     totalPages.value = response.totalPages || 0;
     totalElements.value = response.totalElements || 0;
   } catch (err) {
-    // Manejar errores específicos
     if (err.response?.status === 400) {
       error.value = err.response?.data?.message || "RUN inválido";
     } else {
@@ -79,6 +165,7 @@ async function loadStudents() {
 // Debounce para búsqueda por RUN (400ms)
 const debouncedSearch = debounce(() => {
   page.value = 1;
+  clearSelection();
   loadStudents();
 }, 400);
 
@@ -87,10 +174,172 @@ watch(searchRun, () => {
   debouncedSearch();
 });
 
+// Watch para búsqueda en vivo por nombre
+watch(searchName, () => {
+  debouncedSearch();
+});
+
 // Limpiar debounce al desmontar
 onUnmounted(() => {
   debouncedSearch.cancel();
 });
+
+// === Selección múltiple ===
+function toggleSelectAll() {
+  if (allSelected.value) {
+    // Deseleccionar todos los de la página actual
+    students.value.forEach(s => selectedIds.value.delete(s.id));
+  } else {
+    // Seleccionar todos los de la página actual
+    students.value.forEach(s => selectedIds.value.add(s.id));
+  }
+  // Forzar reactividad
+  selectedIds.value = new Set(selectedIds.value);
+}
+
+function toggleSelect(studentId) {
+  if (selectedIds.value.has(studentId)) {
+    selectedIds.value.delete(studentId);
+  } else {
+    selectedIds.value.add(studentId);
+  }
+  // Forzar reactividad
+  selectedIds.value = new Set(selectedIds.value);
+}
+
+function clearSelection() {
+  selectedIds.value = new Set();
+}
+
+function clearAuthorizedSelection() {
+  selectedAuthorized.value.forEach(s => selectedIds.value.delete(s.id));
+  selectedIds.value = new Set(selectedIds.value);
+}
+
+function clearUnauthorizedSelection() {
+  selectedUnauthorized.value.forEach(s => selectedIds.value.delete(s.id));
+  selectedIds.value = new Set(selectedIds.value);
+}
+
+function removeFromSelection(studentId) {
+  selectedIds.value.delete(studentId);
+  selectedIds.value = new Set(selectedIds.value);
+}
+
+// === Bulk actions ===
+function openBulkConfirmModal() {
+  showBulkConfirmModal.value = true;
+}
+
+function closeBulkConfirmModal() {
+  showBulkConfirmModal.value = false;
+}
+
+function openBulkAuthorizeModal() {
+  showBulkAuthorizeModal.value = true;
+}
+
+function closeBulkAuthorizeModal() {
+  showBulkAuthorizeModal.value = false;
+}
+
+async function handleBulkUnauthorize() {
+  if (selectedAuthorized.value.length === 0) return;
+  
+  isBulkUpdating.value = true;
+  
+  try {
+    const ids = selectedAuthorized.value.map(s => s.id);
+    const result = await bulkUpdateStatus(ids, StudentStatus.NOT_AUTHORIZED);
+    
+    // Solo remover los IDs procesados, mantener las otras selecciones
+    ids.forEach(id => selectedIds.value.delete(id));
+    selectedIds.value = new Set(selectedIds.value);
+    
+    closeBulkConfirmModal();
+    await loadStudents();
+    
+    showToast(`${result} alumno(s) marcados como No Autorizado`, "success");
+  } catch (err) {
+    const message = err.response?.data?.message || "Error al actualizar los alumnos";
+    showToast(message, "error");
+    console.error(err);
+  } finally {
+    isBulkUpdating.value = false;
+  }
+}
+
+async function handleBulkAuthorize() {
+  if (selectedUnauthorized.value.length === 0) return;
+  
+  isBulkUpdating.value = true;
+  
+  try {
+    const ids = selectedUnauthorized.value.map(s => s.id);
+    const result = await bulkUpdateStatus(ids, StudentStatus.AUTHORIZED);
+    
+    // Solo remover los IDs procesados, mantener las otras selecciones
+    ids.forEach(id => selectedIds.value.delete(id));
+    selectedIds.value = new Set(selectedIds.value);
+    
+    closeBulkAuthorizeModal();
+    await loadStudents();
+    
+    showToast(`${result} alumno(s) marcados como Autorizado`, "success");
+  } catch (err) {
+    const message = err.response?.data?.message || "Error al actualizar los alumnos";
+    showToast(message, "error");
+    console.error(err);
+  } finally {
+    isBulkUpdating.value = false;
+  }
+}
+
+// === Acciones individuales con confirmación ===
+function confirmAuthorize(student) {
+  confirmStudent.value = student;
+  confirmAction.value = 'authorize';
+  showConfirmModal.value = true;
+  closeMenu();
+}
+
+function confirmUnauthorize(student) {
+  confirmStudent.value = student;
+  confirmAction.value = 'unauthorize';
+  showConfirmModal.value = true;
+  closeMenu();
+}
+
+function closeConfirmModal() {
+  showConfirmModal.value = false;
+  confirmAction.value = null;
+  confirmStudent.value = null;
+  isConfirming.value = false;
+}
+
+async function executeConfirmedAction() {
+  if (!confirmAction.value || !confirmStudent.value) return;
+  
+  isConfirming.value = true;
+  
+  try {
+    if (confirmAction.value === 'authorize') {
+      await authorizeStudent(confirmStudent.value.id);
+      showToast(`${confirmStudent.value.firstName} ${confirmStudent.value.lastName} autorizado`, "success");
+    } else if (confirmAction.value === 'unauthorize') {
+      await unauthorizeStudent(confirmStudent.value.id);
+      showToast(`${confirmStudent.value.firstName} ${confirmStudent.value.lastName} desautorizado`, "success");
+    }
+    await loadStudents();
+    closeConfirmModal();
+  } catch (err) {
+    const message = err.response?.data?.message || 
+      (confirmAction.value === 'authorize' ? "Error al autorizar" : "Error al desautorizar");
+    showToast(message, "error");
+    console.error(err);
+    closeConfirmModal();
+  }
+}
 
 // Obtener nombre completo concatenando firstName y lastName
 function getFullName(student) {
@@ -115,17 +364,21 @@ function getStatusClass(status) {
 
 function handlePageChange(newPage) {
   page.value = newPage;
+  clearSelection();
 }
 
 function handleFilterChange() {
   page.value = 1;
+  clearSelection();
   loadStudents();
 }
 
 function clearFilters() {
   searchRun.value = "";
+  searchName.value = "";
   filters.value = { status: "" };
   page.value = 1;
+  clearSelection();
   loadStudents();
 }
 
@@ -167,8 +420,8 @@ async function handleCreateStudent() {
     await createStudent(createForm.value);
     closeCreateModal();
     await loadStudents();
+    showToast("Alumno creado exitosamente", "success");
   } catch (err) {
-    // Manejar errores específicos del backend
     const status = err.response?.status;
     const message = err.response?.data?.message;
     
@@ -217,6 +470,7 @@ async function handleEditStudent() {
     await updateStudent(editingStudent.value.id, editForm.value);
     closeEditModal();
     await loadStudents();
+    showToast("Alumno actualizado exitosamente", "success");
   } catch (err) {
     const status = err.response?.status;
     const message = err.response?.data?.message;
@@ -251,6 +505,133 @@ function handleClickOutside(event) {
 
 <template>
   <div @click="handleClickOutside">
+    <!-- Toast notification -->
+    <Transition
+      enter-active-class="transition ease-out duration-300"
+      enter-from-class="transform translate-y-2 opacity-0"
+      enter-to-class="transform translate-y-0 opacity-100"
+      leave-active-class="transition ease-in duration-200"
+      leave-from-class="transform translate-y-0 opacity-100"
+      leave-to-class="transform translate-y-2 opacity-0"
+    >
+      <div
+        v-if="toast.show"
+        :class="[
+          'fixed bottom-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg text-white font-medium',
+          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+        ]"
+      >
+        {{ toast.message }}
+      </div>
+    </Transition>
+
+    <!-- Sección de seleccionados -->
+    <div v-if="selectedIds.size > 0" class="mb-4 space-y-3">
+      <!-- Header con total -->
+      <div class="flex items-center gap-2">
+        <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span class="font-semibold text-gray-900">{{ selectedIds.size }} alumno(s) seleccionado(s) en total</span>
+      </div>
+
+      <!-- Sección de Autorizados (para desautorizar) -->
+      <div v-if="selectedAuthorized.length > 0" class="bg-green-50 border border-green-200 rounded-lg p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+              Autorizados
+            </span>
+            <span class="text-sm text-green-700">{{ selectedAuthorized.length }} alumno(s)</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              @click="clearAuthorizedSelection"
+              class="px-3 py-1.5 text-sm font-medium text-green-700 bg-white border border-green-300 rounded-lg hover:bg-green-50 transition-colors"
+            >
+              Limpiar
+            </button>
+            <button
+              @click="openBulkConfirmModal"
+              class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+              Marcar como No Autorizado
+            </button>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <div
+            v-for="student in selectedAuthorized"
+            :key="student.id"
+            class="inline-flex items-center gap-2 px-3 py-1 bg-white border border-green-200 rounded-full text-sm"
+          >
+            <span class="w-2 h-2 bg-green-500 rounded-full"></span>
+            <span class="text-gray-700">{{ getFullName(student) }}</span>
+            <span class="text-gray-400 text-xs">({{ student.run }})</span>
+            <button
+              @click="removeFromSelection(student.id)"
+              class="text-gray-400 hover:text-red-500 transition-colors"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sección de No Autorizados (para autorizar) -->
+      <div v-if="selectedUnauthorized.length > 0" class="bg-red-50 border border-red-200 rounded-lg p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+              No Autorizados
+            </span>
+            <span class="text-sm text-red-700">{{ selectedUnauthorized.length }} alumno(s)</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              @click="clearUnauthorizedSelection"
+              class="px-3 py-1.5 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+            >
+              Limpiar
+            </button>
+            <button
+              @click="openBulkAuthorizeModal"
+              class="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Marcar como Autorizado
+            </button>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <div
+            v-for="student in selectedUnauthorized"
+            :key="student.id"
+            class="inline-flex items-center gap-2 px-3 py-1 bg-white border border-red-200 rounded-full text-sm"
+          >
+            <span class="w-2 h-2 bg-red-500 rounded-full"></span>
+            <span class="text-gray-700">{{ getFullName(student) }}</span>
+            <span class="text-gray-400 text-xs">({{ student.run }})</span>
+            <button
+              @click="removeFromSelection(student.id)"
+              class="text-gray-400 hover:text-red-500 transition-colors"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Card principal -->
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
       <!-- Header de la tabla -->
@@ -271,6 +652,18 @@ function handleClickOutside(event) {
                 class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro pr-8"
               />
               <svg v-if="isLoading && searchRun" class="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+            </div>
+            <div class="relative">
+              <input
+                v-model="searchName"
+                type="text"
+                placeholder="Buscar por nombre..."
+                class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro pr-8"
+              />
+              <svg v-if="isLoading && searchName" class="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
               </svg>
@@ -321,6 +714,15 @@ function handleClickOutside(event) {
         <table class="w-full">
           <thead class="bg-gray-50">
             <tr>
+              <th class="px-6 py-3 text-left">
+                <input
+                  type="checkbox"
+                  :checked="allSelected"
+                  :indeterminate="someSelected"
+                  @change="toggleSelectAll"
+                  class="w-4 h-4 text-ufro border-gray-300 rounded focus:ring-ufro cursor-pointer"
+                />
+              </th>
               <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Nombre
               </th>
@@ -336,7 +738,22 @@ function handleClickOutside(event) {
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-200">
-            <tr v-for="student in students" :key="student.id" class="hover:bg-gray-50 transition-colors">
+            <tr 
+              v-for="student in students" 
+              :key="student.id" 
+              :class="[
+                'transition-colors',
+                selectedIds.has(student.id) ? 'bg-blue-50' : 'hover:bg-gray-50'
+              ]"
+            >
+              <td class="px-6 py-4 whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  :checked="selectedIds.has(student.id)"
+                  @change="toggleSelect(student.id)"
+                  class="w-4 h-4 text-ufro border-gray-300 rounded focus:ring-ufro cursor-pointer"
+                />
+              </td>
               <td class="px-6 py-4 whitespace-nowrap">
                 <div class="text-sm font-medium text-gray-900">{{ getFullName(student) }}</div>
               </td>
@@ -378,6 +795,30 @@ function handleClickOutside(event) {
                       </svg>
                       Editar
                     </button>
+                    
+                    <!-- Autorizar (solo si está NOT_AUTHORIZED) -->
+                    <button
+                      v-if="student.status === StudentStatus.NOT_AUTHORIZED"
+                      @click="confirmAuthorize(student)"
+                      class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                    >
+                      <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Autorizar
+                    </button>
+                    
+                    <!-- Desautorizar (solo si está AUTHORIZED) -->
+                    <button
+                      v-if="student.status === StudentStatus.AUTHORIZED"
+                      @click="confirmUnauthorize(student)"
+                      class="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                    >
+                      <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                      </svg>
+                      Desautorizar
+                    </button>
                   </div>
                 </div>
               </td>
@@ -407,6 +848,170 @@ function handleClickOutside(event) {
         :size="size"
         @change="handlePageChange"
       />
+    </div>
+
+    <!-- Modal de confirmación bulk -->
+    <div
+      v-if="showBulkConfirmModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50"
+    >
+      <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+        <div class="flex items-center gap-4 mb-4">
+          <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+            <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-lg font-semibold text-gray-900">Confirmar acción</h3>
+            <p class="text-sm text-gray-500">Esta acción no se puede deshacer fácilmente</p>
+          </div>
+        </div>
+
+        <p class="text-gray-600 mb-6">
+          ¿Está seguro que desea marcar <strong>{{ selectedAuthorized.length }} alumno(s)</strong> como <strong class="text-red-600">No Autorizado</strong>?
+        </p>
+
+        <div class="flex gap-3">
+          <button
+            @click="closeBulkConfirmModal"
+            :disabled="isBulkUpdating"
+            class="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="handleBulkUnauthorize"
+            :disabled="isBulkUpdating"
+            class="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <svg v-if="isBulkUpdating" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            {{ isBulkUpdating ? 'Procesando...' : 'Confirmar' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de confirmación bulk autorizar -->
+    <div
+      v-if="showBulkAuthorizeModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50"
+    >
+      <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+        <div class="flex items-center gap-4 mb-4">
+          <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+            <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-lg font-semibold text-gray-900">Confirmar autorización</h3>
+            <p class="text-sm text-gray-500">Se autorizarán los alumnos seleccionados</p>
+          </div>
+        </div>
+
+        <p class="text-gray-600 mb-6">
+          ¿Está seguro que desea marcar <strong>{{ selectedUnauthorized.length }} alumno(s)</strong> como <strong class="text-green-600">Autorizado</strong>?
+        </p>
+
+        <div class="flex gap-3">
+          <button
+            @click="closeBulkAuthorizeModal"
+            :disabled="isBulkUpdating"
+            class="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="handleBulkAuthorize"
+            :disabled="isBulkUpdating"
+            class="flex-1 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <svg v-if="isBulkUpdating" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            {{ isBulkUpdating ? 'Procesando...' : 'Confirmar' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de confirmación individual -->
+    <div
+      v-if="showConfirmModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50"
+    >
+      <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+        <div class="flex items-center gap-4 mb-4">
+          <div 
+            :class="[
+              'w-12 h-12 rounded-full flex items-center justify-center',
+              confirmAction === 'authorize' ? 'bg-green-100' : 'bg-red-100'
+            ]"
+          >
+            <svg 
+              v-if="confirmAction === 'authorize'" 
+              class="w-6 h-6 text-green-600" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <svg 
+              v-else 
+              class="w-6 h-6 text-red-600" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-lg font-semibold text-gray-900">
+              {{ confirmAction === 'authorize' ? 'Autorizar Alumno' : 'Desautorizar Alumno' }}
+            </h3>
+            <p class="text-sm text-gray-500">Esta acción cambiará el estado del alumno</p>
+          </div>
+        </div>
+
+        <p class="text-gray-600 mb-6">
+          ¿Está seguro que desea 
+          <strong :class="confirmAction === 'authorize' ? 'text-green-600' : 'text-red-600'">
+            {{ confirmAction === 'authorize' ? 'autorizar' : 'desautorizar' }}
+          </strong> 
+          a <strong>{{ confirmStudent?.firstName }} {{ confirmStudent?.lastName }}</strong>?
+        </p>
+
+        <div class="flex gap-3">
+          <button
+            @click="closeConfirmModal"
+            :disabled="isConfirming"
+            class="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="executeConfirmedAction"
+            :disabled="isConfirming"
+            :class="[
+              'flex-1 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2',
+              confirmAction === 'authorize' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+            ]"
+          >
+            <svg v-if="isConfirming" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            {{ isConfirming ? 'Procesando...' : 'Confirmar' }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Modal de crear alumno -->

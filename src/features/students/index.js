@@ -1,1 +1,9 @@
-export { getStudents, createStudent, updateStudent, StudentStatus } from "./api/students.js";
+export { 
+  getStudents, 
+  createStudent, 
+  updateStudent, 
+  authorizeStudent,
+  unauthorizeStudent,
+  bulkUpdateStatus,
+  StudentStatus 
+} from "./api/students.js";
