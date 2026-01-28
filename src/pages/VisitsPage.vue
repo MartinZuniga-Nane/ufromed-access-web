@@ -296,8 +296,9 @@ async function handleCreateVisit() {
   try {
     await createVisit({
       ...createForm.value,
-      validFrom: new Date(createForm.value.validFrom).toISOString(),
-      validUntil: new Date(createForm.value.validUntil).toISOString(),
+      // Enviar en formato ISO sin convertir a UTC (el backend interpreta como hora local)
+      validFrom: createForm.value.validFrom + ":00",
+      validUntil: createForm.value.validUntil + ":00",
     });
     closeCreateModal();
     await loadVisits();
@@ -352,8 +353,9 @@ async function handleEditVisit() {
     await updateVisit(editingVisit.value.id, {
       firstName: editForm.value.firstName,
       lastName: editForm.value.lastName,
-      validFrom: new Date(editForm.value.validFrom).toISOString(),
-      validUntil: new Date(editForm.value.validUntil).toISOString(),
+      // Enviar en formato ISO sin convertir a UTC (el backend interpreta como hora local)
+      validFrom: editForm.value.validFrom + ":00",
+      validUntil: editForm.value.validUntil + ":00",
     });
     closeEditModal();
     await loadVisits();
