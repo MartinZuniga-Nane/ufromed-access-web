@@ -41,8 +41,7 @@ const showCreateModal = ref(false);
 const isCreating = ref(false);
 const createForm = ref({
   run: "",
-  firstName: "",
-  lastName: "",
+  fullName: "",
   status: StudentStatus.AUTHORIZED,
 });
 const createError = ref("");
@@ -52,8 +51,7 @@ const showEditModal = ref(false);
 const isEditing = ref(false);
 const editingStudent = ref(null);
 const editForm = ref({
-  firstName: "",
-  lastName: "",
+  fullName: "",
   status: StudentStatus.AUTHORIZED,
 });
 const editError = ref("");
@@ -110,44 +108,17 @@ async function loadStudents() {
   
   try {
     const runPrefix = cleanForPrefix(searchRun.value);
-    const nameTrimmed = searchName.value.trim();
-    
-    // Preparar parámetros de búsqueda por nombre
-    let namePrefix = "";
-    let firstNamePrefix = "";
-    let lastNameFilter = ""; // Para filtrar en frontend
-    
-    if (nameTrimmed) {
-      const parts = nameTrimmed.split(/\s+/);
-      if (parts.length === 1) {
-        // Solo una palabra: buscar en nombre O apellido
-        namePrefix = parts[0];
-      } else {
-        // Múltiples palabras: primera es nombre, resto es apellido
-        firstNamePrefix = parts[0];
-        lastNameFilter = parts.slice(1).join(" ").toLowerCase();
-      }
-    }
+    const namePrefix = searchName.value.trim();
     
     const response = await getStudents({
       page: page.value,
       size: size.value,
       runPrefix: runPrefix,
       namePrefix: namePrefix,
-      firstNamePrefix: firstNamePrefix,
       status: filters.value.status,
     });
     
-    let content = response.content || [];
-    
-    // Filtrar por apellido en frontend si se buscó nombre completo
-    if (lastNameFilter) {
-      content = content.filter(student => 
-        student.lastName.toLowerCase().startsWith(lastNameFilter)
-      );
-    }
-    
-    students.value = content;
+    students.value = response.content || [];
     totalPages.value = response.totalPages || 0;
     totalElements.value = response.totalElements || 0;
   } catch (err) {
@@ -250,7 +221,7 @@ async function handleBulkUnauthorize() {
   
   try {
     const ids = selectedAuthorized.value.map(s => s.id);
-    const result = await bulkUpdateStatus(ids, StudentStatus.NOT_AUTHORIZED);
+    await bulkUpdateStatus(ids, StudentStatus.NOT_AUTHORIZED);
     
     // Solo remover los IDs procesados, mantener las otras selecciones
     ids.forEach(id => selectedIds.value.delete(id));
@@ -259,7 +230,7 @@ async function handleBulkUnauthorize() {
     closeBulkConfirmModal();
     await loadStudents();
     
-    showToast(`${result} alumno(s) marcados como No Autorizado`, "success");
+    showToast(`${ids.length} alumno(s) marcados como No Autorizado`, "success");
   } catch (err) {
     const message = err.response?.data?.message || "Error al actualizar los alumnos";
     showToast(message, "error");
@@ -276,7 +247,7 @@ async function handleBulkAuthorize() {
   
   try {
     const ids = selectedUnauthorized.value.map(s => s.id);
-    const result = await bulkUpdateStatus(ids, StudentStatus.AUTHORIZED);
+    await bulkUpdateStatus(ids, StudentStatus.AUTHORIZED);
     
     // Solo remover los IDs procesados, mantener las otras selecciones
     ids.forEach(id => selectedIds.value.delete(id));
@@ -285,7 +256,7 @@ async function handleBulkAuthorize() {
     closeBulkAuthorizeModal();
     await loadStudents();
     
-    showToast(`${result} alumno(s) marcados como Autorizado`, "success");
+    showToast(`${ids.length} alumno(s) marcados como Autorizado`, "success");
   } catch (err) {
     const message = err.response?.data?.message || "Error al actualizar los alumnos";
     showToast(message, "error");
@@ -325,10 +296,10 @@ async function executeConfirmedAction() {
   try {
     if (confirmAction.value === 'authorize') {
       await authorizeStudent(confirmStudent.value.id);
-      showToast(`${confirmStudent.value.firstName} ${confirmStudent.value.lastName} autorizado`, "success");
+      showToast(`${confirmStudent.value.fullName} autorizado`, "success");
     } else if (confirmAction.value === 'unauthorize') {
       await unauthorizeStudent(confirmStudent.value.id);
-      showToast(`${confirmStudent.value.firstName} ${confirmStudent.value.lastName} desautorizado`, "success");
+      showToast(`${confirmStudent.value.fullName} desautorizado`, "success");
     }
     await loadStudents();
     closeConfirmModal();
@@ -339,11 +310,6 @@ async function executeConfirmedAction() {
     console.error(err);
     closeConfirmModal();
   }
-}
-
-// Obtener nombre completo concatenando firstName y lastName
-function getFullName(student) {
-  return `${student.firstName} ${student.lastName}`.trim();
 }
 
 function formatStatus(status) {
@@ -394,8 +360,7 @@ function closeMenu() {
 function openCreateModal() {
   createForm.value = {
     run: "",
-    firstName: "",
-    lastName: "",
+    fullName: "",
     status: StudentStatus.AUTHORIZED,
   };
   createError.value = "";
@@ -408,7 +373,7 @@ function closeCreateModal() {
 }
 
 async function handleCreateStudent() {
-  if (!createForm.value.run || !createForm.value.firstName || !createForm.value.lastName) {
+  if (!createForm.value.run || !createForm.value.fullName) {
     createError.value = "Todos los campos son obligatorios";
     return;
   }
@@ -442,8 +407,7 @@ async function handleCreateStudent() {
 function openEditModal(student) {
   editingStudent.value = student;
   editForm.value = {
-    firstName: student.firstName,
-    lastName: student.lastName,
+    fullName: student.fullName,
     status: student.status,
   };
   editError.value = "";
@@ -458,8 +422,8 @@ function closeEditModal() {
 }
 
 async function handleEditStudent() {
-  if (!editForm.value.firstName || !editForm.value.lastName) {
-    editError.value = "Todos los campos son obligatorios";
+  if (!editForm.value.fullName) {
+    editError.value = "El nombre completo es obligatorio";
     return;
   }
   
@@ -569,7 +533,7 @@ function handleClickOutside(event) {
             class="inline-flex items-center gap-2 px-3 py-1 bg-white border border-green-200 rounded-full text-sm"
           >
             <span class="w-2 h-2 bg-green-500 rounded-full"></span>
-            <span class="text-gray-700">{{ getFullName(student) }}</span>
+            <span class="text-gray-700">{{ student.fullName }}</span>
             <span class="text-gray-400 text-xs">({{ student.run }})</span>
             <button
               @click="removeFromSelection(student.id)"
@@ -617,7 +581,7 @@ function handleClickOutside(event) {
             class="inline-flex items-center gap-2 px-3 py-1 bg-white border border-red-200 rounded-full text-sm"
           >
             <span class="w-2 h-2 bg-red-500 rounded-full"></span>
-            <span class="text-gray-700">{{ getFullName(student) }}</span>
+            <span class="text-gray-700">{{ student.fullName }}</span>
             <span class="text-gray-400 text-xs">({{ student.run }})</span>
             <button
               @click="removeFromSelection(student.id)"
@@ -755,7 +719,7 @@ function handleClickOutside(event) {
                 />
               </td>
               <td class="px-6 py-4 whitespace-nowrap">
-                <div class="text-sm font-medium text-gray-900">{{ getFullName(student) }}</div>
+                <div class="text-sm font-medium text-gray-900">{{ student.fullName }}</div>
               </td>
               <td class="px-6 py-4 whitespace-nowrap">
                 <div class="text-sm text-gray-600">{{ student.run }}</div>
@@ -985,7 +949,7 @@ function handleClickOutside(event) {
           <strong :class="confirmAction === 'authorize' ? 'text-green-600' : 'text-red-600'">
             {{ confirmAction === 'authorize' ? 'autorizar' : 'desautorizar' }}
           </strong> 
-          a <strong>{{ confirmStudent?.firstName }} {{ confirmStudent?.lastName }}</strong>?
+          a <strong>{{ confirmStudent?.fullName }}</strong>?
         </p>
 
         <div class="flex gap-3">
@@ -1045,27 +1009,15 @@ function handleClickOutside(event) {
             />
           </div>
 
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-              <input
-                v-model="createForm.firstName"
-                type="text"
-                placeholder="Juan"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro"
-                required
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Apellidos</label>
-              <input
-                v-model="createForm.lastName"
-                type="text"
-                placeholder="Pérez González"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro"
-                required
-              />
-            </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Nombre completo</label>
+            <input
+              v-model="createForm.fullName"
+              type="text"
+              placeholder="Juan Pérez González"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro"
+              required
+            />
           </div>
 
           <div>
@@ -1130,27 +1082,15 @@ function handleClickOutside(event) {
             />
           </div>
 
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-              <input
-                v-model="editForm.firstName"
-                type="text"
-                placeholder="Juan"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro"
-                required
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Apellidos</label>
-              <input
-                v-model="editForm.lastName"
-                type="text"
-                placeholder="Pérez González"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro"
-                required
-              />
-            </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Nombre completo</label>
+            <input
+              v-model="editForm.fullName"
+              type="text"
+              placeholder="Juan Pérez González"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro"
+              required
+            />
           </div>
 
           <div>

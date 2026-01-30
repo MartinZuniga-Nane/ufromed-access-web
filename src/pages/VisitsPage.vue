@@ -28,8 +28,7 @@ const showCreateModal = ref(false);
 const isCreating = ref(false);
 const createForm = ref({
   run: "",
-  firstName: "",
-  lastName: "",
+  fullName: "",
   validFrom: "",
   validUntil: "",
 });
@@ -40,8 +39,7 @@ const showEditModal = ref(false);
 const isEditing = ref(false);
 const editingVisit = ref(null);
 const editForm = ref({
-  firstName: "",
-  lastName: "",
+  fullName: "",
   validFrom: "",
   validUntil: "",
 });
@@ -64,42 +62,17 @@ async function loadVisits() {
     
     // Sanitizar el input de búsqueda removiendo puntos y guiones
     const runPrefix = cleanForPrefix(searchRun.value);
-    const nameTrimmed = searchName.value.trim();
-    
-    // Preparar parámetros de búsqueda por nombre
-    let namePrefix = "";
-    let firstNamePrefix = "";
-    let lastNameFilter = ""; // Para filtrar en frontend
-    
-    if (nameTrimmed) {
-      const parts = nameTrimmed.split(/\s+/);
-      if (parts.length === 1) {
-        // Solo una palabra: buscar en nombre O apellido
-        namePrefix = parts[0];
-      } else {
-        // Múltiples palabras: primera es nombre, resto es apellido
-        firstNamePrefix = parts[0];
-        lastNameFilter = parts.slice(1).join(" ").toLowerCase();
-      }
-    }
+    const namePrefix = searchName.value.trim();
     
     const response = await getVisits({
       page: page.value,
       size: size.value,
       runPrefix: runPrefix,
       namePrefix: namePrefix,
-      firstNamePrefix: firstNamePrefix,
       status: backendStatus,
     });
     
     let content = response.content || [];
-    
-    // Filtrar por apellido en frontend si se buscó nombre completo
-    if (lastNameFilter) {
-      content = content.filter(visit => 
-        visit.lastName.toLowerCase().startsWith(lastNameFilter)
-      );
-    }
     
     // Filtrar en frontend si se seleccionó PENDING
     if (statusFilter.value === VisitDisplayStatus.PENDING) {
@@ -154,11 +127,6 @@ watch(searchName, () => {
 onUnmounted(() => {
   debouncedSearch.cancel();
 });
-
-// Obtener nombre completo concatenando firstName y lastName
-function getFullName(visit) {
-  return `${visit.firstName} ${visit.lastName}`.trim();
-}
 
 /**
  * Obtiene el estado de display de la visita
@@ -270,8 +238,7 @@ function openCreateModal() {
   
   createForm.value = {
     run: "",
-    firstName: "",
-    lastName: "",
+    fullName: "",
     validFrom: formatDateTimeLocal(now),
     validUntil: formatDateTimeLocal(tomorrow),
   };
@@ -285,7 +252,7 @@ function closeCreateModal() {
 }
 
 async function handleCreateVisit() {
-  if (!createForm.value.run || !createForm.value.firstName || !createForm.value.lastName || !createForm.value.validFrom || !createForm.value.validUntil) {
+  if (!createForm.value.run || !createForm.value.fullName || !createForm.value.validFrom || !createForm.value.validUntil) {
     createError.value = "Todos los campos son obligatorios";
     return;
   }
@@ -295,7 +262,8 @@ async function handleCreateVisit() {
   
   try {
     await createVisit({
-      ...createForm.value,
+      run: createForm.value.run,
+      fullName: createForm.value.fullName,
       // Enviar en formato ISO sin convertir a UTC (el backend interpreta como hora local)
       validFrom: createForm.value.validFrom + ":00",
       validUntil: createForm.value.validUntil + ":00",
@@ -324,8 +292,7 @@ async function handleCreateVisit() {
 function openEditModal(visit) {
   editingVisit.value = visit;
   editForm.value = {
-    firstName: visit.firstName,
-    lastName: visit.lastName,
+    fullName: visit.fullName,
     validFrom: formatDateTimeLocal(visit.validFrom),
     validUntil: formatDateTimeLocal(visit.validUntil),
   };
@@ -341,7 +308,7 @@ function closeEditModal() {
 }
 
 async function handleEditVisit() {
-  if (!editForm.value.firstName || !editForm.value.lastName || !editForm.value.validFrom || !editForm.value.validUntil) {
+  if (!editForm.value.fullName || !editForm.value.validFrom || !editForm.value.validUntil) {
     editError.value = "Todos los campos son obligatorios";
     return;
   }
@@ -351,8 +318,7 @@ async function handleEditVisit() {
   
   try {
     await updateVisit(editingVisit.value.id, {
-      firstName: editForm.value.firstName,
-      lastName: editForm.value.lastName,
+      fullName: editForm.value.fullName,
       // Enviar en formato ISO sin convertir a UTC (el backend interpreta como hora local)
       validFrom: editForm.value.validFrom + ":00",
       validUntil: editForm.value.validUntil + ":00",
@@ -528,7 +494,7 @@ function handleClickOutside(event) {
           <tbody class="divide-y divide-gray-200">
             <tr v-for="visit in visits" :key="visit.id" class="hover:bg-gray-50 transition-colors">
               <td class="px-6 py-4 whitespace-nowrap">
-                <div class="text-sm font-medium text-gray-900">{{ getFullName(visit) }}</div>
+                <div class="text-sm font-medium text-gray-900">{{ visit.fullName }}</div>
               </td>
               <td class="px-6 py-4 whitespace-nowrap">
                 <div class="text-sm text-gray-600">{{ visit.run }}</div>
@@ -645,27 +611,15 @@ function handleClickOutside(event) {
             />
           </div>
 
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-              <input
-                v-model="createForm.firstName"
-                type="text"
-                placeholder="Juan"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro"
-                required
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Apellidos</label>
-              <input
-                v-model="createForm.lastName"
-                type="text"
-                placeholder="Pérez González"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro"
-                required
-              />
-            </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Nombre completo</label>
+            <input
+              v-model="createForm.fullName"
+              type="text"
+              placeholder="Juan Pérez González"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro"
+              required
+            />
           </div>
 
           <div>
@@ -738,27 +692,15 @@ function handleClickOutside(event) {
             />
           </div>
 
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-              <input
-                v-model="editForm.firstName"
-                type="text"
-                placeholder="Juan"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro"
-                required
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Apellidos</label>
-              <input
-                v-model="editForm.lastName"
-                type="text"
-                placeholder="Pérez González"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro"
-                required
-              />
-            </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Nombre completo</label>
+            <input
+              v-model="editForm.fullName"
+              type="text"
+              placeholder="Juan Pérez González"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ufro focus:border-ufro"
+              required
+            />
           </div>
 
           <div>
@@ -820,7 +762,7 @@ function handleClickOutside(event) {
           ¿Estás seguro de que deseas eliminar esta visita?
         </p>
         <p class="text-sm text-gray-500 mb-6">
-          <strong>{{ deletingVisit?.firstName }} {{ deletingVisit?.lastName }}</strong> ({{ deletingVisit?.run }})
+          <strong>{{ deletingVisit?.fullName }}</strong> ({{ deletingVisit?.run }})
         </p>
         
         <div class="flex gap-3">
