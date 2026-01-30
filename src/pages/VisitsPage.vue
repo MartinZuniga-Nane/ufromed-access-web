@@ -468,25 +468,25 @@ function handleClickOutside(event) {
 
       <!-- Tabla -->
       <div v-else class="overflow-x-auto">
-        <table class="w-full">
+        <table class="w-full table-fixed">
           <thead class="bg-gray-50">
             <tr>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-1/5 px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Nombre
               </th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-[15%] px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 RUN
               </th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-1/5 px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Válido Desde
               </th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-1/5 px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Válido Hasta
               </th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-[12%] px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Estado
               </th>
-              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-24 px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Acciones
               </th>
             </tr>

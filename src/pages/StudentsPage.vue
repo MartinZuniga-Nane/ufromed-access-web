@@ -675,10 +675,10 @@ function handleClickOutside(event) {
 
       <!-- Tabla -->
       <div v-else class="overflow-x-auto">
-        <table class="w-full">
+        <table class="w-full table-fixed">
           <thead class="bg-gray-50">
             <tr>
-              <th class="px-6 py-3 text-left">
+              <th class="w-12 px-6 py-3 text-left">
                 <input
                   type="checkbox"
                   :checked="allSelected"
@@ -687,16 +687,16 @@ function handleClickOutside(event) {
                   class="w-4 h-4 text-ufro border-gray-300 rounded focus:ring-ufro cursor-pointer"
                 />
               </th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-1/3 px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Nombre
               </th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-1/4 px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 RUN
               </th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-1/5 px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Estado
               </th>
-              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-24 px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Acciones
               </th>
             </tr>
