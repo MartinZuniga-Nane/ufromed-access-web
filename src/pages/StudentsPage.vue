@@ -7,6 +7,7 @@ import {
   authorizeStudent,
   unauthorizeStudent,
   bulkUpdateStatus,
+  importStudentsFromExcel,
   StudentStatus 
 } from "@/features/students";
 import { cleanForPrefix, debounce } from "@/shared/utils";
@@ -55,6 +56,14 @@ const editForm = ref({
   status: StudentStatus.AUTHORIZED,
 });
 const editError = ref("");
+
+// Modal de importar Excel
+const showImportModal = ref(false);
+const isImporting = ref(false);
+const importFile = ref(null);
+const importError = ref("");
+const importResult = ref(null);
+const isDragging = ref(false);
 
 // Modal de confirmación bulk
 const showBulkConfirmModal = ref(false);
@@ -450,6 +459,145 @@ async function handleEditStudent() {
   }
 }
 
+// === Importar Excel ===
+function openImportModal() {
+  importFile.value = null;
+  importError.value = "";
+  importResult.value = null;
+  showImportModal.value = true;
+}
+
+function closeImportModal() {
+  showImportModal.value = false;
+  importFile.value = null;
+  importError.value = "";
+  importResult.value = null;
+  isDragging.value = false;
+}
+
+function validateXlsxFile(file) {
+  if (!file) return false;
+  const validTypes = [
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ];
+  const validExtension = file.name.toLowerCase().endsWith(".xlsx");
+  return validTypes.includes(file.type) || validExtension;
+}
+
+function handleFileSelect(event) {
+  const file = event.target.files?.[0];
+  if (file) {
+    if (validateXlsxFile(file)) {
+      importFile.value = file;
+      importError.value = "";
+    } else {
+      importFile.value = null;
+      importError.value = "Solo se permiten archivos Excel (.xlsx)";
+    }
+  }
+}
+
+function handleDragOver(event) {
+  event.preventDefault();
+  isDragging.value = true;
+}
+
+function handleDragLeave(event) {
+  event.preventDefault();
+  isDragging.value = false;
+}
+
+function handleDrop(event) {
+  event.preventDefault();
+  isDragging.value = false;
+  const file = event.dataTransfer?.files?.[0];
+  if (file) {
+    if (validateXlsxFile(file)) {
+      importFile.value = file;
+      importError.value = "";
+    } else {
+      importFile.value = null;
+      importError.value = "Solo se permiten archivos Excel (.xlsx)";
+    }
+  }
+}
+
+function removeSelectedFile() {
+  importFile.value = null;
+  importError.value = "";
+}
+
+async function handleImportStudents() {
+  if (!importFile.value) return;
+  
+  isImporting.value = true;
+  importError.value = "";
+  
+  try {
+    const result = await importStudentsFromExcel(importFile.value);
+    importResult.value = result;
+    await loadStudents();
+  } catch (err) {
+    const message = err.response?.data?.message || err.response?.data?.error || "Error al importar el archivo";
+    importError.value = message;
+    console.error(err);
+  } finally {
+    isImporting.value = false;
+  }
+}
+
+// Computed para filtrar solo errores de RUT inválido
+const invalidRutErrors = computed(() => {
+  if (!importResult.value?.errors) return [];
+  return importResult.value.errors.filter(err => err.reason === "RUT inválido");
+});
+
+// Función para descargar todos los errores como TXT
+function downloadErrorsTxt() {
+  if (!importResult.value) return;
+  
+  const result = importResult.value;
+  let content = "=== REPORTE DE IMPORTACIÓN DE ALUMNOS ===\n";
+  content += `Fecha: ${new Date().toLocaleString('es-CL')}\n\n`;
+  
+  content += "--- RESUMEN ---\n";
+  content += `Filas leídas: ${result.totalRowsRead}\n`;
+  content += `Insertados correctamente: ${result.inserted}\n`;
+  content += `RUT inválido: ${result.invalidRut}\n`;
+  content += `Nombre inválido: ${result.invalidName}\n`;
+  content += `Duplicados en archivo: ${result.duplicateInFile}\n`;
+  content += `Ya existentes en alumnos: ${result.duplicateInStudents}\n`;
+  content += `Ya existentes en visitas: ${result.crossInVisits}\n`;
+  content += `Ya existentes en usuarios: ${result.crossInUsers}\n\n`;
+  
+  if (result.errors && result.errors.length > 0) {
+    content += "--- DETALLE DE ERRORES ---\n";
+    content += `Total de errores: ${result.errors.length}\n\n`;
+    
+    result.errors.forEach((err, index) => {
+      content += `[${index + 1}] Fila ${err.row}\n`;
+      content += `    Razón: ${err.reason}\n`;
+      if (err.rutRaw) content += `    RUT original: ${err.rutRaw}\n`;
+      if (err.rutNormalized) content += `    RUT normalizado: ${err.rutNormalized}\n`;
+      if (err.nameRaw) content += `    Nombre: ${err.nameRaw}\n`;
+      content += "\n";
+    });
+  } else {
+    content += "--- No se registraron errores ---\n";
+  }
+  
+  // Crear y descargar archivo
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `errores_importacion_${new Date().toISOString().slice(0,10)}.txt`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 // Watch para cambios de página
 watch(page, () => {
   loadStudents();
@@ -646,6 +794,15 @@ function handleClickOutside(event) {
               class="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
             >
               Limpiar
+            </button>
+            <button
+              @click="openImportModal"
+              class="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              Importar Excel
             </button>
             <button
               @click="openCreateModal"
@@ -1122,6 +1279,189 @@ function handleClickOutside(event) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Modal de importar Excel -->
+    <div
+      v-if="showImportModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50"
+    >
+      <div class="bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
+        <div class="flex items-center justify-between mb-6">
+          <h3 class="text-lg font-semibold text-gray-900">Importar Alumnos desde Excel</h3>
+          <button @click="closeImportModal" :disabled="isImporting" class="text-gray-400 hover:text-gray-600 disabled:opacity-50">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Mostrar resultado de importación -->
+        <div v-if="importResult" class="space-y-4">
+          <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+            <div class="flex items-center gap-2 mb-3">
+              <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span class="font-semibold text-green-800">Importación completada</span>
+            </div>
+            <div class="text-sm text-gray-700 space-y-1">
+              <p><strong>Filas leídas:</strong> {{ importResult.totalRowsRead }}</p>
+              <p><strong class="text-green-700">Insertados:</strong> {{ importResult.inserted }}</p>
+              <p v-if="importResult.invalidRut > 0"><strong class="text-red-600">RUT inválido:</strong> {{ importResult.invalidRut }}</p>
+              <p v-if="importResult.invalidName > 0"><strong class="text-red-600">Nombre inválido:</strong> {{ importResult.invalidName }}</p>
+              <p v-if="importResult.duplicateInFile > 0"><strong class="text-yellow-600">Duplicados en archivo:</strong> {{ importResult.duplicateInFile }}</p>
+              <p v-if="importResult.duplicateInStudents > 0"><strong class="text-yellow-600">Ya existentes en alumnos:</strong> {{ importResult.duplicateInStudents }}</p>
+              <p v-if="importResult.crossInVisits > 0"><strong class="text-yellow-600">Ya existentes en visitas:</strong> {{ importResult.crossInVisits }}</p>
+              <p v-if="importResult.crossInUsers > 0"><strong class="text-yellow-600">Ya existentes en usuarios:</strong> {{ importResult.crossInUsers }}</p>
+            </div>
+          </div>
+
+          <!-- Lista de errores de RUT inválido -->
+          <div v-if="importResult.invalidRut > 0" class="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span class="font-semibold text-red-800">RUT inválidos ({{ importResult.invalidRut }})</span>
+              </div>
+            </div>
+            <div v-if="invalidRutErrors.length > 0" class="max-h-40 overflow-y-auto">
+              <ul class="text-sm text-red-700 space-y-1">
+                <li v-for="(err, index) in invalidRutErrors" :key="index" class="flex gap-2 flex-wrap">
+                  <span v-if="err.rutRaw" class="text-gray-600">RUT: {{ err.rutRaw }}</span>
+                  <span v-if="err.nameRaw" class="text-gray-500">- {{ err.nameRaw }}</span>
+                </li>
+              </ul>
+            </div>
+            <p v-if="invalidRutErrors.length < importResult.invalidRut" class="text-xs text-red-600 mt-2 italic">
+              Mostrando {{ invalidRutErrors.length }} de {{ importResult.invalidRut }} errores. Descarga el archivo para ver todos.
+            </p>
+            <p v-else-if="invalidRutErrors.length === 0" class="text-xs text-red-600 italic">
+              Descarga el archivo de errores para ver el detalle.
+            </p>
+          </div>
+
+          <!-- Botón para descargar todos los errores -->
+          <div v-if="importResult.errors && importResult.errors.length > 0" class="flex justify-center">
+            <button
+              @click="downloadErrorsTxt"
+              class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Descargar todos los errores (.txt)
+            </button>
+          </div>
+
+          <div class="flex justify-end pt-2">
+            <button
+              @click="closeImportModal"
+              class="px-4 py-2 text-sm font-medium text-white bg-ufro rounded-lg hover:bg-ufro-600 transition-colors"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+
+        <!-- Formulario de importación -->
+        <div v-else class="space-y-4">
+          <!-- Error de validación -->
+          <div v-if="importError" class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
+            {{ importError }}
+          </div>
+
+          <!-- Zona de drag & drop -->
+          <div
+            @dragover="!isImporting && handleDragOver($event)"
+            @dragleave="!isImporting && handleDragLeave($event)"
+            @drop="!isImporting && handleDrop($event)"
+            :class="[
+              'border-2 border-dashed rounded-lg p-8 text-center transition-colors',
+              isImporting ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+              isDragging && !isImporting ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400',
+              importFile ? 'border-green-500 bg-green-50' : ''
+            ]"
+            @click="!isImporting && $refs.fileInput.click()"
+          >
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              @change="handleFileSelect"
+              class="hidden"
+            />
+
+            <!-- Icono y texto cuando no hay archivo -->
+            <div v-if="!importFile" class="space-y-3">
+              <div class="flex justify-center">
+                <svg class="w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+              </div>
+              <div>
+                <p class="text-gray-700 font-medium">Selecciona un archivo</p>
+                <p class="text-sm text-gray-500 mt-1">Toca para seleccionar un archivo de tu dispositivo.</p>
+              </div>
+              <p class="text-xs text-gray-400">Solo archivos .xlsx</p>
+            </div>
+
+            <!-- Archivo seleccionado -->
+            <div v-else class="space-y-3">
+              <div class="flex justify-center">
+                <svg class="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <p class="text-gray-900 font-medium">{{ importFile.name }}</p>
+                <p class="text-sm text-gray-500">{{ (importFile.size / 1024).toFixed(1) }} KB</p>
+              </div>
+              <button
+                @click.stop="removeSelectedFile"
+                :disabled="isImporting"
+                class="text-sm text-red-600 hover:text-red-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Quitar archivo
+              </button>
+            </div>
+          </div>
+
+          <!-- Información adicional -->
+          <p class="text-xs text-gray-500 text-center">
+            El archivo debe tener columnas "RUT" y "Nombre". Los alumnos se crearán como Autorizados.
+          </p>
+
+          <!-- Botones -->
+          <div class="flex gap-3 pt-2">
+            <button
+              type="button"
+              @click="closeImportModal"
+              :disabled="isImporting"
+              class="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              @click="handleImportStudents"
+              :disabled="!importFile || isImporting"
+              :class="[
+                'flex-1 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors flex items-center justify-center gap-2',
+                !importFile || isImporting ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+              ]"
+            >
+              <svg v-if="isImporting" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+              {{ isImporting ? 'Importando...' : 'Importar' }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

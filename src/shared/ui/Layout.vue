@@ -82,10 +82,12 @@ function getIconPath(iconName) {
       <div class="flex flex-col h-full">
         <!-- Logo -->
         <div class="flex items-center gap-3 px-6 py-5 border-b border-gray-200">
-          <div class="w-10 h-10 bg-ufro rounded-lg flex items-center justify-center">
-            <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
-            </svg>
+          <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center overflow-hidden">
+            <img 
+              src="@/assets/Logo Ufro 23.png" 
+              alt="Logo UFRO" 
+              class="w-9 h-9 object-contain"
+            />
           </div>
           <div>
             <h1 class="text-lg font-bold text-gray-800">{{ title }}</h1>

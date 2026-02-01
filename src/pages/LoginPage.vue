@@ -38,14 +38,14 @@ async function handleLogin() {
   <div class="min-h-screen flex flex-col lg:flex-row">
     <!-- Lado izquierdo - Logo institucional -->
     <div class="lg:w-1/2 bg-ufro flex flex-col items-center justify-center p-8 lg:p-12">
-      <div class="text-center">
+      <div class="text-center flex flex-col items-center">
         <!-- Logo UFRO -->
-        <div class="w-32 h-32 lg:w-40 lg:h-40 mx-auto mb-8 bg-white rounded-full flex items-center justify-center shadow-lg">
-          <svg class="w-20 h-20 lg:w-24 lg:h-24 text-ufro" viewBox="0 0 100 100" fill="currentColor">
-            <rect x="25" y="20" width="50" height="60" rx="4" />
-            <circle cx="50" cy="50" r="15" fill="white" />
-            <path d="M45 45 L55 45 L50 55 Z" fill="currentColor" />
-          </svg>
+        <div class="mb-8">
+          <img 
+            src="@/assets/Logo Ufro.png" 
+            alt="Logo Universidad de la Frontera" 
+            class="w-40 h-40 lg:w-52 lg:h-52 object-contain mx-auto"
+          />
         </div>
         
         <h1 class="text-white text-3xl lg:text-4xl font-bold mb-4">

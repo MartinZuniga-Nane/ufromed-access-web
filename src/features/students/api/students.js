@@ -79,3 +79,19 @@ export async function bulkUpdateStatus(ids, status) {
   const response = await api.patch("/students/bulk-status", { ids, status });
   return response.data;
 }
+
+/**
+ * Importa estudiantes desde un archivo Excel (.xlsx)
+ * @param {File} file - Archivo Excel con columnas "RUT" y "Nombre"
+ * @returns {Promise<Object>} - ImportStudentsResponse con contadores y errores
+ */
+export async function importStudentsFromExcel(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await api.post("/students/import", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return response.data;
+}

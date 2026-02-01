@@ -5,5 +5,6 @@ export {
   authorizeStudent,
   unauthorizeStudent,
   bulkUpdateStatus,
+  importStudentsFromExcel,
   StudentStatus 
 } from "./api/students.js";
