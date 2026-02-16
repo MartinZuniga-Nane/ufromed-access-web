@@ -92,6 +92,7 @@ export async function importStudentsFromExcel(file) {
     headers: {
       "Content-Type": "multipart/form-data",
     },
+    timeout: 300000, // 5 minutos para importaciones masivas
   });
   return response.data;
 }
