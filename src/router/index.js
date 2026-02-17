@@ -6,6 +6,7 @@ const LoginPage = () => import("@/pages/LoginPage.vue");
 const UsersPage = () => import("@/pages/UsersPage.vue");
 const StudentsPage = () => import("@/pages/StudentsPage.vue");
 const VisitsPage = () => import("@/pages/VisitsPage.vue");
+const AccessMarksPage = () => import("@/pages/AccessMarksPage.vue");
 const UnauthorizedPage = () => import("@/pages/UnauthorizedPage.vue");
 
 // Layout
@@ -62,6 +63,12 @@ const routes = [
         name: "visits",
         component: VisitsPage,
         meta: { roles: ["ADMIN", "SECRETARY"] },
+      },
+      {
+        path: "marcaciones",
+        name: "access-marks",
+        component: AccessMarksPage,
+        meta: { roles: ["ADMIN"] },
       },
     ],
   },

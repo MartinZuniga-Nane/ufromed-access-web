@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted, watch, onUnmounted } from "vue";
-import { getVisits, createVisit, updateVisit, deleteVisit, VisitStatus, VisitDisplayStatus } from "@/features/visits";
+import { ref, computed, onMounted, watch, onUnmounted } from "vue";
+import { getVisits, createVisit, updateVisit, deleteVisit, bulkDeleteVisits, VisitStatus, VisitDisplayStatus } from "@/features/visits";
 import { cleanForPrefix, debounce } from "@/shared/utils";
 import Pagination from "@/components/Pagination.vue";
 
@@ -49,6 +49,34 @@ const editError = ref("");
 const showDeleteModal = ref(false);
 const isDeleting = ref(false);
 const deletingVisit = ref(null);
+
+// Selección múltiple
+const selectedIds = ref(new Set());
+
+// Modal de confirmación bulk delete
+const showBulkDeleteModal = ref(false);
+const isBulkDeleting = ref(false);
+
+// Toast notification
+const toast = ref({ show: false, message: "", type: "success" });
+
+// Computed: si todos los de la página están seleccionados
+const allSelected = computed(() => {
+  if (visits.value.length === 0) return false;
+  return visits.value.every(v => selectedIds.value.has(v.id));
+});
+
+// Computed: si hay alguno seleccionado (para el checkbox indeterminado)
+const someSelected = computed(() => {
+  return selectedIds.value.size > 0 && !allSelected.value;
+});
+
+function showToast(message, type = "success") {
+  toast.value = { show: true, message, type };
+  setTimeout(() => {
+    toast.value.show = false;
+  }, 3000);
+}
 
 async function loadVisits() {
   isLoading.value = true;
@@ -110,6 +138,7 @@ async function loadVisits() {
 // Debounce para búsqueda por RUN (400ms)
 const debouncedSearch = debounce(() => {
   page.value = 1;
+  clearSelection();
   loadVisits();
 }, 400);
 
@@ -185,10 +214,12 @@ function formatDate(dateString) {
 
 function handlePageChange(newPage) {
   page.value = newPage;
+  clearSelection();
 }
 
 function handleFilterChange() {
   page.value = 1;
+  clearSelection();
   loadVisits();
 }
 
@@ -197,7 +228,63 @@ function clearFilters() {
   searchName.value = "";
   statusFilter.value = "";
   page.value = 1;
+  clearSelection();
   loadVisits();
+}
+
+// === Selección múltiple ===
+function toggleSelectAll() {
+  if (allSelected.value) {
+    visits.value.forEach(v => selectedIds.value.delete(v.id));
+  } else {
+    visits.value.forEach(v => selectedIds.value.add(v.id));
+  }
+  selectedIds.value = new Set(selectedIds.value);
+}
+
+function toggleSelect(visitId) {
+  if (selectedIds.value.has(visitId)) {
+    selectedIds.value.delete(visitId);
+  } else {
+    selectedIds.value.add(visitId);
+  }
+  selectedIds.value = new Set(selectedIds.value);
+}
+
+function clearSelection() {
+  selectedIds.value = new Set();
+}
+
+// === Bulk delete ===
+function openBulkDeleteModal() {
+  showBulkDeleteModal.value = true;
+}
+
+function closeBulkDeleteModal() {
+  showBulkDeleteModal.value = false;
+}
+
+async function handleBulkDelete() {
+  if (selectedIds.value.size === 0) return;
+  
+  isBulkDeleting.value = true;
+  
+  try {
+    const ids = Array.from(selectedIds.value);
+    const result = await bulkDeleteVisits(ids);
+    
+    closeBulkDeleteModal();
+    clearSelection();
+    await loadVisits();
+    
+    showToast(`${result || ids.length} visita(s) eliminada(s)`);
+  } catch (err) {
+    const message = err.response?.data?.message || "Error al eliminar las visitas";
+    showToast(message, "error");
+    console.error(err);
+  } finally {
+    isBulkDeleting.value = false;
+  }
 }
 
 function toggleMenu(visitId) {
@@ -388,6 +475,32 @@ function handleClickOutside(event) {
 
 <template>
   <div @click="handleClickOutside">
+    <!-- Toast notification -->
+    <Transition
+      enter-active-class="transition ease-out duration-300"
+      enter-from-class="transform opacity-0 translate-y-2"
+      enter-to-class="transform opacity-100 translate-y-0"
+      leave-active-class="transition ease-in duration-200"
+      leave-from-class="transform opacity-100 translate-y-0"
+      leave-to-class="transform opacity-0 translate-y-2"
+    >
+      <div
+        v-if="toast.show"
+        :class="[
+          'fixed bottom-4 right-4 px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-2',
+          toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+        ]"
+      >
+        <svg v-if="toast.type === 'success'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+        <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+        {{ toast.message }}
+      </div>
+    </Transition>
+
     <!-- Card principal -->
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
       <!-- Header de la tabla -->
@@ -458,6 +571,33 @@ function handleClickOutside(event) {
         {{ error }}
       </div>
 
+      <!-- Barra de selección -->
+      <div 
+        v-if="selectedIds.size > 0"
+        class="px-6 py-3 bg-ufro-50 border-b border-ufro-200 flex items-center justify-between"
+      >
+        <span class="text-sm font-medium text-ufro-800">
+          {{ selectedIds.size }} visita(s) seleccionada(s)
+        </span>
+        <div class="flex gap-2">
+          <button
+            @click="clearSelection"
+            class="px-3 py-1.5 text-sm font-medium text-gray-600 bg-white rounded-lg hover:bg-gray-50 border border-gray-300 transition-colors"
+          >
+            Deseleccionar
+          </button>
+          <button
+            @click="openBulkDeleteModal"
+            class="px-3 py-1.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-1"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Eliminar seleccionados
+          </button>
+        </div>
+      </div>
+
       <!-- Loading state -->
       <div v-if="isLoading" class="flex items-center justify-center py-12">
         <svg class="animate-spin h-8 w-8 text-ufro" fill="none" viewBox="0 0 24 24">
@@ -471,28 +611,50 @@ function handleClickOutside(event) {
         <table class="w-full table-fixed">
           <thead class="bg-gray-50">
             <tr>
-              <th class="w-1/5 px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-12 px-4 py-3 text-left">
+                <input
+                  type="checkbox"
+                  :checked="allSelected"
+                  :indeterminate="someSelected"
+                  @change="toggleSelectAll"
+                  class="w-4 h-4 text-ufro border-gray-300 rounded focus:ring-ufro"
+                />
+              </th>
+              <th class="w-[18%] px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Nombre
               </th>
-              <th class="w-[15%] px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-[14%] px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 RUN
               </th>
-              <th class="w-1/5 px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-[18%] px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Válido Desde
               </th>
-              <th class="w-1/5 px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-[18%] px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Válido Hasta
               </th>
               <th class="w-[12%] px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Estado
               </th>
-              <th class="w-24 px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="w-20 px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Acciones
               </th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-200">
-            <tr v-for="visit in visits" :key="visit.id" class="hover:bg-gray-50 transition-colors">
+            <tr 
+              v-for="visit in visits" 
+              :key="visit.id" 
+              class="hover:bg-gray-50 transition-colors"
+              :class="{ 'bg-ufro-50': selectedIds.has(visit.id) }"
+            >
+              <td class="px-4 py-4">
+                <input
+                  type="checkbox"
+                  :checked="selectedIds.has(visit.id)"
+                  @change="toggleSelect(visit.id)"
+                  class="w-4 h-4 text-ufro border-gray-300 rounded focus:ring-ufro"
+                />
+              </td>
               <td class="px-6 py-4 whitespace-nowrap">
                 <div class="text-sm font-medium text-gray-900">{{ visit.fullName }}</div>
               </td>
@@ -556,7 +718,7 @@ function handleClickOutside(event) {
 
             <!-- Empty state -->
             <tr v-if="visits.length === 0 && !isLoading">
-              <td colspan="6" class="px-6 py-12 text-center">
+              <td colspan="7" class="px-6 py-12 text-center">
                 <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -779,6 +941,47 @@ function handleClickOutside(event) {
             class="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {{ isDeleting ? 'Eliminando...' : 'Eliminar' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de confirmación bulk delete -->
+    <div
+      v-if="showBulkDeleteModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50"
+    >
+      <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+            <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-gray-900">Eliminar Visitas</h3>
+        </div>
+        
+        <p class="text-sm text-gray-600 mb-2">
+          ¿Estás seguro de que deseas eliminar las visitas seleccionadas?
+        </p>
+        <p class="text-sm text-gray-500 mb-6">
+          Se eliminarán <strong>{{ selectedIds.size }}</strong> visita(s) de forma permanente.
+        </p>
+        
+        <div class="flex gap-3">
+          <button
+            @click="closeBulkDeleteModal"
+            :disabled="isBulkDeleting"
+            class="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="handleBulkDelete"
+            :disabled="isBulkDeleting"
+            class="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {{ isBulkDeleting ? 'Eliminando...' : 'Eliminar todo' }}
           </button>
         </div>
       </div>

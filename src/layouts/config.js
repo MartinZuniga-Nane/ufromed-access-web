@@ -6,6 +6,7 @@ export const NAV_ITEMS = [
   { name: "Usuarios", path: "/usuarios", icon: "users", roles: ["ADMIN"] },
   { name: "Alumnos", path: "/alumnos", icon: "students", roles: ["ADMIN"] },
   { name: "Visitas", path: "/visitas", icon: "visits", roles: ["ADMIN", "SECRETARY"] },
+  { name: "Marcaciones", path: "/marcaciones", icon: "access-marks", roles: ["ADMIN"] },
 ];
 
 /**

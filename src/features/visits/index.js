@@ -1,1 +1,1 @@
-export { getVisits, createVisit, updateVisit, deleteVisit, VisitStatus, VisitDisplayStatus } from "./api/visits.js";
+export { getVisits, createVisit, updateVisit, deleteVisit, bulkDeleteVisits, VisitStatus, VisitDisplayStatus } from "./api/visits.js";

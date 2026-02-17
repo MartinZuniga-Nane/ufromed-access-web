@@ -69,3 +69,13 @@ export async function updateVisit(id, data) {
 export async function deleteVisit(id) {
   await api.delete(`/visits/${id}`);
 }
+
+/**
+ * Elimina visitas en bulk
+ * @param {number[]} ids - IDs de las visitas a eliminar
+ * @returns {Promise<number>} - Cantidad de visitas eliminadas
+ */
+export async function bulkDeleteVisits(ids) {
+  const response = await api.delete("/visits/bulk", { data: { ids } });
+  return response.data;
+}
