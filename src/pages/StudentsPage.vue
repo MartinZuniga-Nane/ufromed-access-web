@@ -745,7 +745,7 @@ function handleClickOutside(event) {
     </div>
 
     <!-- Card principal -->
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200">
       <!-- Header de la tabla -->
       <div class="px-6 py-4 border-b border-gray-200">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -831,7 +831,7 @@ function handleClickOutside(event) {
       </div>
 
       <!-- Tabla -->
-      <div v-else class="overflow-x-auto">
+      <div v-else :class="['overflow-auto', activeMenuId ? 'pb-32' : '']">
         <table class="w-full table-fixed">
           <thead class="bg-gray-50">
             <tr>
